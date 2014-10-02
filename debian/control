@@ -1,0 +1,29 @@
+Source: cmtspeech
+Section: libs
+Priority: extra
+Maintainer: Ivaylo Dimitrov <freemangordon@abv.bg>
+Build-Depends: debhelper (>= 5)
+
+Package: libcmtspeechdata
+Section: libs
+Priority: extra
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: Cmtspeech module for PulseAudio on N900
+ Cmtspeech module for PulseAudio on N900 device.
+
+Package: libcmtspeechdata-dev
+Section: devel
+Priority: extra
+Architecture: any
+Depends: libcmtspeechdata (= ${binary:Version}), pkg-config
+Description: Cmtspeech module for PulseAudio on N900
+ API for libcmtspeech library.
+
+Package: libcmtspeechdata-dbg
+Section: devel
+Priority: extra
+Architecture: any
+Depends: libcmtspeechdata (= ${binary:Version}), pkg-config
+Description: Debug symbols for cmtspeech module for PulseAudio on N900
+ Debug symbols for libcmtspeech library.

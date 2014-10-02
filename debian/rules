@@ -1,0 +1,67 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# export DH_VERBOSE=1
+
+CFLAGS = -Wall -g -Werror -Wno-error=unused-but-set-variable
+
+DESTDIR = $(CURDIR)/debian/tmp
+
+# Use thumb mode if it enabled.
+ifneq (,$(findstring thumb,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -mthumb
+endif
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+config.status:
+	if [ ! -x configure ]; then ./autogen.sh; fi
+	dh_testdir
+	# Add here commands to configure the package.
+	CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" ./configure --prefix=/usr --disable-static $(CONFIGURE_OPTIONS)
+
+build: build-stamp
+
+build-stamp: config.status
+	dh_testdir
+
+	CFLAGS="$(CFLAGS)" $(MAKE)
+
+	touch build-stamp
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) DESTDIR=$(DESTDIR) install
+
+clean:
+	-$(MAKE) clean
+	dh_testdir
+	dh_clean
+	-rm config.status
+
+binary: build install
+	dh_testdir
+	dh_testroot
+	dh_install --sourcedir=debian/tmp
+	dh_installdocs
+	dh_installchangelogs
+	dh_link
+	dh_strip --dbg-package=libcmtspeechdata-dbg
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_shlibdeps
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+.PHONY: build clean binary install
