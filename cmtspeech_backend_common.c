@@ -333,7 +333,7 @@ int cmtspeech_bc_handle_command(cmtspeech_bc_state_t *state, cmtspeech_t *pconte
     /* XXX: support legacy CMT firmwares */
     if (state->proto_state == CMTSPEECH_STATE_ACTIVE_DL) {
       priv_state_change_to(state, CMTSPEECH_STATE_ACTIVE_DLUL, BC_STATE_IN_SYNC);
-      TRACE_INFO(DEBUG_PREFIX "backend_common: XXX detected an old CMT SW (pre-0.16). Support for old versions will be dropped in later versions.");
+      TRACE_INFO(DEBUG_PREFIX "XXX detected an old CMT SW (pre-0.16). Support for old versions will be dropped in later versions.");
     }
 
     if (state->priv_state == BC_STATE_TIMING)
