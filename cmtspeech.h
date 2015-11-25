@@ -121,7 +121,6 @@ struct cmtspeech_buffer_s {
   uint8_t *data;          /**< pointer to a buffer of 'size' octets */
   uint8_t *payload;       /**< pointer to frame payload */
   int index;              /**< library internal */
-  int reserved[3];
 };
 
 /**
@@ -139,8 +138,6 @@ struct cmtspeech_event_s {
 
   int msg_type;          /**< type of the message that caused
 			      the state change */
-
-  int reserved;          /**< reserved */
 
   /**
    * A copy of the protocol message that caused
@@ -183,7 +180,7 @@ struct cmtspeech_event_s {
 
     /* reserved / padding */
     struct {
-      int reserved[4];
+      int reserved[3];
     } reserved;
 
   } msg;
@@ -257,53 +254,8 @@ int cmtspeech_read_event(cmtspeech_t *context, cmtspeech_event_t *event);
 /* Interfaces: Event parsing
  * ------------------------- */
 
-/**
- * Returns the matching state transition for for 'event'.
- *
- * In case either 'context' or 'event' is invalid,
- * CMTSPEECH_TR_INVALID is returned.
- *
- * This function is a helper function and its use is not
- * mandatory.
- *
- * @return enum cmtspeech_state_tr
- */
-int cmtspeech_event_to_state_transition(const cmtspeech_t *context, const cmtspeech_event_t *event);
-
 /* Interfaces: Runtime configuration
  * --------------------------------- */
-
-/**
- * Sets preference for wideband mode
- *
- * If set to enabled, application is assumed to prefer sending and
- * receiving wideband (i.e. 16kHz sampling rate) speech frames. If
- * disabled, library assumes only 8kHz sampling rate is supported
- * and/or preferred.
- *
- * This setting will be passed to the modem upon session setup.
- * The final selection of sampling rate will however be done by
- * the modem. It is thus possible that modem will send
- * a CMTSPEECH_SPEECH_CONFIG_REQ event with sampling rate of 16kHz
- * even though application has disabled wideband support with
- * this method.
- *
- * The sampling rate used to interface with the modem does not
- * necessarily match the codec sampling rate used on the radio
- * interface. In other words the modem may resample the voice
- * frames to match the sampling rate used on modem<->libcmtspeechdata
- * link.
- *
- * By default, wideband mode is disabled after initial cmtspeech_open().
- *
- * This function can only be called when there is no active
- * session.
- *
- * @pre cmtspeech_is_ssi_connection_enabled(context) != true
- *
- * @return 0 on success
- */
-int cmtspeech_set_wb_preference(cmtspeech_t *context, bool enabled);
 
 /* Interfaces: State management
  * ---------------------------- */
@@ -532,7 +484,7 @@ int cmtspeech_send_ssi_config_request(cmtspeech_t *context, bool active);
  *
  * @return 0 on sucess, -1 on error
  */
-int cmtspeech_test_data_ramp_req(cmtspeech_t *context, uint8_t rampstart, uint8_t ramplen);
+int cmtspeech_send_test_sequence(cmtspeech_t *context, uint8_t rampstart, uint8_t ramplen);
 
 /* Interfaces: Trace messages
  * -------------------------- */

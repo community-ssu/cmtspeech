@@ -1,7 +1,7 @@
 Source: cmtspeech
 Section: libs
 Priority: extra
-Maintainer: Ivaylo Dimitrov <freemangordon@abv.bg>
+Maintainer: Jonathan Wilson <jfwfreo@tpgi.com.au>
 Build-Depends: debhelper (>= 5)
 
 Package: libcmtspeechdata

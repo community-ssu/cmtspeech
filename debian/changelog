@@ -1,3 +1,9 @@
+cmtspeech (1.6.2.3) unstable; urgency=low
+
+  * Complete clone of Fremantle libcmtspeech
+
+ -- Jonathan Wilson <jfwfreo@tpgi.com.au>  Wed, 25 Nov 2015 10:30:25 -0500
+
 cmtspeech (1.6.2.2) unstable; urgency=low
 
   * Initial release

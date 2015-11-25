@@ -2,15 +2,7 @@
 # Contact: Kai Vehmanen 
 # Licensed under LGPL. See file COPYING.
 
-SUBDIRS =		doc \
-			dummy-backend
-
-noinst_PROGRAMS = 	test_cmtspeech_msgs \
-			test_ring \
-			test_cmtspeech
-
-TESTS = 		test_cmtspeech_msgs \
-			test_ring
+SUBDIRS =		doc
 
 EXTRA_DIST = 		cmtspeech_config.h.in \
 			libcmtspeechdata.ver
@@ -51,39 +43,6 @@ libcmtspeechdata_la_SOURCES = \
 libcmtspeechdata_la_CFLAGS = -prefer-pic
 libcmtspeechdata_la_LIBADD = -lrt
 libcmtspeechdata_la_LDFLAGS =  -Wl,--version-script,$(srcdir)/libcmtspeechdata.ver
-
-# test application sources
-# ------------------------
-
-bin_PROGRAMS =		send_cmtspeech_reset \
-			cmtspeech_ramp_test
-
-noinst_HEADERS =	$(cmtspeechdata_common_inc) \
-			$(cmtspeech_data_kernel_inc)
-
-test_cmtspeech_msgs_SOURCES = test_cmtspeech_msgs.c
-test_cmtspeech_msgs_CFLAGS = @CHECK_CFLAGS@
-test_cmtspeech_msgs_LDADD = \
-			@CHECK_LIBS@ \
-			libcmtspeechdata.la
-
-test_cmtspeech_SOURCES = test_cmtspeech.c
-test_cmtspeech_CFLAGS = @CHECK_CFLAGS@
-test_cmtspeech_LDADD = 	@CHECK_LIBS@ \
-			libcmtspeechdata.la \
-			-lrt
-
-test_ring_CFLAGS = 	@CHECK_CFLAGS@
-test_ring_LDADD = 	@CHECK_LIBS@ \
-			libcmtspeechdata.la
-
-send_cmtspeech_reset_SOURCES = send_cmtspeech_reset.c
-send_cmtspeech_reset_LDADD = \
-			libcmtspeechdata.la
-
-cmtspeech_ramp_test_SOURCES = cmtspeech_ramp_test.c
-cmtspeech_ramp_test_LDADD = \
-			libcmtspeechdata.la
 
 # documentation rules
 # -------------------

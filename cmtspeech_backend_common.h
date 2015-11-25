@@ -38,7 +38,7 @@
 #include <stddef.h>
 
 #if !defined(LIBCMTSPEECHDATA_PROTOCOL_VERSION) || \
-    LIBCMTSPEECHDATA_PROTOCOL_VERSION != 2
+    LIBCMTSPEECHDATA_PROTOCOL_VERSION != 1
 #error "LIBCMTSPEECHDATA_PROTOCOL_VERSION not defined or does not match implementation."
 #endif
 
@@ -67,7 +67,6 @@ struct cmtspeech_bc_state_s {
   int priv_state;                  /**< private state, extension to 'proto_state' */
   int sample_layout;
   int io_errors;                   /**< counter of fatal i/o errors */
-  int conf_proto_version;          /**< which protocol version to use */
 };
 typedef struct cmtspeech_bc_state_s cmtspeech_bc_state_t;
 
@@ -81,7 +80,7 @@ void cmtspeech_bc_complete_event_processing(cmtspeech_bc_state_t *state, cmtspee
 int cmtspeech_bc_write_command(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, cmtspeech_cmd_t msg, int fd);
 int cmtspeech_bc_send_timing_request(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd);
 int cmtspeech_bc_send_ssi_config_request(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd, bool state_arg);
-int cmtspeech_bc_test_data_ramp_req(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd, uint8_t channel, uint8_t replychannel, uint8_t rampstart, uint8_t ramplen);
+int cmtspeech_bc_send_test_sequence(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd, uint8_t channel, uint8_t replychannel, uint8_t rampstart, uint8_t ramplen);
 int cmtspeech_bc_test_sequence_received(cmtspeech_bc_state_t *state);
 int cmtspeech_bc_state_change_call_connect(cmtspeech_t *context, bool connect_state);
 int cmtspeech_bc_state_change_call_status(cmtspeech_t *context, bool server_state);

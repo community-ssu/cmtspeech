@@ -78,7 +78,7 @@
 #define EVENT_BUFFER_SIZE       64
 #define PCM_SAMPLE_SIZE         2   /* mono/16bit */
 #define MAX_SLOT_SIZE           (PCM_SAMPLE_SIZE*320+CMTSPEECH_DATA_HEADER_LEN)
-#define UL_SLOTS                2
+#define UL_SLOTS                3
 #define DL_SLOTS                3
 #define SHARED_MEMORY_AREA_PAGE 4096
 #define MAX_UL_ERRORS_PAUSE     5  /* pause UL after this many errors */
@@ -94,7 +94,7 @@
 #define PROTOCOL_SUPPORT_SAMPLE_SWAP 1
 
 #include "sal_debug.h"
-#define DEBUG_PREFIX "nokiamodem_backend: "
+#define DEBUG_PREFIX "hw6x_backend: "
 
 /* Data types */
 /* -------------------------------------------------------------------- */
@@ -132,7 +132,6 @@ typedef struct nokiamodem_buffer_desc_s nokiamodem_buffer_desc_t;
 struct nokiamodem_driver_state_s {
   int fd;                       /**< driver-io: cmt_speech driver handle */
   int wakeline_users;           /**< driver-io: bitmask of wakeline users */
-  int flags;                    /**< driver-io: bitmask of DriverFeatures enum */
   uint8_t *buf;                 /**< driver-io: mmap()'ed driver buffer  */
   size_t buflen;                /**< driver-io: size of 'buf' */
   uint8_t *dlswapbuf;           /**< driver-io: temporary buffer for public DL buffers */
@@ -164,7 +163,7 @@ struct cmtspeech_nokiamodem_s {
 };
 typedef struct cmtspeech_nokiamodem_s cmtspeech_nokiamodem_t;
 
-#define CMTSPEECH_BACKEND_ID "cmtspeech_nokiamodem"
+#define CMTSPEECH_BACKEND_ID "cmtspeech_hw6x"
 
 /* Definitions derived from build-time configuration */
 /* -------------------------------------------------------------------- */
@@ -315,19 +314,10 @@ static int priv_release_wakeline(cmtspeech_nokiamodem_t *priv, int id)
 static void priv_reset_wakeline_state(cmtspeech_nokiamodem_t *priv)
 {
   unsigned int status = 0;
-  int res;
 
-  TRACE_IO(DEBUG_PREFIX "Reseting SSI wakeline state (user mask %x at reset).", priv->d.wakeline_users);
-
-  /* step: make sure VDD2 is unlocked */
-  if (priv->d.wakeline_users != 0) {
-    priv_set_ssi_lock(priv, false);
-  }
-
-  res = ioctl (priv->d.fd, CS_SET_WAKELINE, &status);
-  SOFT_ASSERT(res == 0);
+  ioctl (priv->d.fd, CS_SET_WAKELINE, &status);
   priv->d.wakeline_users = 0;
-
+  priv_set_ssi_lock(priv,0);
 }
 
 /**
@@ -567,7 +557,6 @@ cmtspeech_t* cmtspeech_open(void)
 
     priv->d.wakeline_users = 0;
     priv->d.fd = fd;
-    priv->d.flags = 0;
     ring_buffer_init(&priv->d.evbuf, ringbufdata, ringbufsize);
 
     /* note: we define the memory layout */
@@ -655,11 +644,6 @@ static int priv_queue_control_event(cmtspeech_nokiamodem_t *priv, const cmtspeec
     int avail =
       ring_buffer_avail_for_write(&priv->d.evbuf);
 
-    TRACE_ERROR(DEBUG_PREFIX
-		"control event queue overflow "
-		"(lostmsg:%d, newmsg:%d, avail=%u, cavail=%u, event=%u)",
-		oldev->msg_type, event->msg_type, avail, cavail, eventsize);
-
     ring_buffer_move_read(&priv->d.evbuf, eventsize);
     cavail = ring_buffer_cavail_for_write(&priv->d.evbuf);
     res = -1;
@@ -704,64 +688,84 @@ static int priv_dequeue_control_event(cmtspeech_nokiamodem_t *priv, cmtspeech_ev
   return 0;
 }
 
-static int priv_setup_driver_bufconfig_v2api(cmtspeech_nokiamodem_t *priv)
+static int priv_setup_driver_bufconfig_v1api(cmtspeech_nokiamodem_t *priv)
 {
+  int res;
+  struct cs_config config;
   struct cs_buffer_config drvcfg;
-  int res, desc_flags = 0;
-  unsigned int if_ver;
+  int offset1, offset2;
+  int i;
+  uint8_t *buf1,*buf2;
 
-  memset(&drvcfg, 0, sizeof(drvcfg));
-     
-  /* step: fill the driver config struct */
-  drvcfg.buf_size = priv->slot_size;
-  drvcfg.rx_bufs = DL_SLOTS;
-  drvcfg.tx_bufs = UL_SLOTS;
-  drvcfg.flags = CS_FEAT_TSTAMP_RX_CTRL | CS_FEAT_ROLLING_RX_COUNTER;
-
-  res = ioctl(priv->d.fd, CS_GET_IF_VERSION, &if_ver);
-  if (res < 0) {
-    if_ver = 0;
-  }
-
-  res = ioctl(priv->d.fd, CS_CONFIG_BUFS, &drvcfg);
-  TRACE_IO(DEBUG_PREFIX "Initialized driver buffer: res %d, params size=%u.",
-	   res, drvcfg.buf_size);
-  if (res == 0) {
-    struct cs_mmap_config_block *mmap_cfg = 
-      (struct cs_mmap_config_block *)priv->d.buf;
-    int i;
-
-    TRACE_IO(DEBUG_PREFIX "mmap_cfg: ver=%u, buf_size=%u, rxbufs=%u, txbufs=%u",
-	     if_ver, mmap_cfg->buf_size, mmap_cfg->rx_bufs, mmap_cfg->tx_bufs);
-
-    /* note: rolling rx pointer feature introduced in v1 */
-    if (if_ver > 0)
-      priv->d.flags |= DRIVER_FEAT_ROLLING_RX_PTR;
-
-    /* note: run following only when activating */
-    if (priv->slot_size > 0) {
-      for(i = 0; i < DL_SLOTS; i++) 
-	TRACE_IO(DEBUG_PREFIX "mmap_cfg: rxbuf #%u = %u",
-		 i, mmap_cfg->rx_offsets[i]);
-
-      for(i = 0; i < UL_SLOTS; i++) 
-	TRACE_IO(DEBUG_PREFIX "mmap_cfg: txbuf #%u = %u",
-		 i, mmap_cfg->tx_offsets[i]);
-
-      priv_initialize_rx_buffer_descriptors_mmap(priv, desc_flags);
-      priv_initialize_tx_buffer_descriptors_mmap(priv, desc_flags);
-
-      priv->d.tstamp_rx_ctrl_offset =
-	offsetof(struct cs_mmap_config_block, tstamp_rx_ctrl);
-      TRACE_IO(DEBUG_PREFIX "mmap_cfg: rx-ctrl-tstamp=%u",
-	       priv->d.tstamp_rx_ctrl_offset);
+  memset(&config, 0 ,sizeof(config));
+  offset1 = 3 * priv->slot_size + 2048;
+  offset2 = 2048;
+  config.ul_data_start_offset = 3 * priv->slot_size + 2048;
+  config.dl_data_start_offset = 2048;
+  config.slot_size = priv->slot_size;
+  if ( offset1 & 0x3F )
+    offset2 = 3 * priv->slot_size + 2112;
+  config.dl_slots = DL_SLOTS;
+  if ( offset1 & 0x3F )
+    offset2 &= 0xFFFFFFC0;
+  config.ul_slots = UL_SLOTS;
+  if ( offset1 & 0x3F )
+    config.ul_data_start_offset = offset2;
+  config.tstamp_offset = 4032;
+  res = ioctl(priv->d.fd, CS_CONFIG, &config);
+  if (res)
+  {
+    if (res < 0)
+    {
+      memset(&drvcfg, 0, sizeof(drvcfg));
+      drvcfg.buf_size = priv->slot_size;
+      drvcfg.rx_bufs = DL_SLOTS;
+      drvcfg.tx_bufs = UL_SLOTS;
+      drvcfg.flags = CS_FEAT_TSTAMP_RX_CTRL;
+      res = ioctl(priv->d.fd, CS_CONFIG_BUFS, &drvcfg);
+      if (!res)
+      {
+        if (priv->slot_size > 0)
+        {
+          priv_initialize_rx_buffer_descriptors_mmap(priv, 0);
+          priv_initialize_tx_buffer_descriptors_mmap(priv, 0);
+          priv->d.tstamp_rx_ctrl_offset = offsetof(struct cs_mmap_config_block, tstamp_rx_ctrl);
+        }
+      }
+      else if (res < 0)
+      {
+        priv_reset_buf_state_to_disconnected(priv);
+      }
     }
   }
-  else {
-    TRACE_ERROR(DEBUG_PREFIX "CS_CONFIG_BUFS returned an error (%d): %s",
-		errno, strerror(errno), drvcfg.buf_size);
+  else
+  {
+    for (i = 0;i < 3;i++)
+    {
+      if ( priv->bcstate.sample_layout == CMTSPEECH_SAMPLE_LAYOUT_SWAPPED_LE )
+      {
+        buf1 = priv->d.dlswapbuf;
+      }
+      else
+      {
+        buf1 = priv->d.buf;
+      }
+      if ( priv->bcstate.sample_layout == CMTSPEECH_SAMPLE_LAYOUT_SWAPPED_LE )
+        buf2 = &buf1[i * priv->slot_size];
+      else
+        buf1 += config.dl_data_start_offset;
+      if ( priv->bcstate.sample_layout != CMTSPEECH_SAMPLE_LAYOUT_SWAPPED_LE )
+        buf2 = &buf1[i * priv->slot_size];
+      priv->d.rx_offsets[i] = i * priv->slot_size + config.dl_data_start_offset;
+      priv_initialize_buffer_descriptor(&priv->dlbufdesc[i], buf2, priv->slot_size, 0, i, 0);
+    }
+    for (i = 0;i < 3;i++)
+    {
+      priv_initialize_buffer_descriptor(&priv->ulbufdesc[i], &priv->d.buf[config.ul_data_start_offset + i * config.slot_size], priv->slot_size, 2, i, 0);
+      priv->d.tx_offsets[i] = config.ul_data_start_offset + i * config.slot_size;
+    }
+    priv->d.tstamp_rx_ctrl_offset = config.tstamp_offset;
   }
-
   return res;
 }
 
@@ -770,8 +774,6 @@ static int priv_setup_driver_bufconfig_v2api(cmtspeech_nokiamodem_t *priv)
  */
 static int priv_setup_driver_bufconfig(cmtspeech_nokiamodem_t *priv)
 {
-  int res;
-
   if (priv->slot_size == 0) {
     /* note: speech data transfer terminated, reset buffer state */
     priv_reset_buf_state_to_disconnected(priv);
@@ -784,13 +786,7 @@ static int priv_setup_driver_bufconfig(cmtspeech_nokiamodem_t *priv)
     priv->ul_slot_app = 0;
   }
 
-  /* step: pass new parameters to the driver */
-  res = priv_setup_driver_bufconfig_v2api(priv);
-  if (res < 0) {
-    TRACE_ERROR(DEBUG_PREFIX "Unable to set up buffer config for call");
-  }
-
-  return res;
+  return priv_setup_driver_bufconfig_v1api(priv);
 }
 
 /**
@@ -933,7 +929,6 @@ static int priv_handle_speech_config(cmtspeech_nokiamodem_t *priv, cmtspeech_eve
   return res;
 }
 
-
 static void priv_initialize_after_peer_reset(cmtspeech_nokiamodem_t *priv)
 {
   TRACE_IO(DEBUG_PREFIX "Peer reset, initializing local state.");
@@ -1048,41 +1043,7 @@ static int priv_handle_test_ramp_ping(cmtspeech_nokiamodem_t *priv, const cmtspe
   return -1;
 }
 
-/**
- * Returns diff of last RX buffer frame handled by the hardware
- * driver (reported via mmap segment) and latest frame handed
- * out to the application.
- *
- * In normal conditions, the delay should vary between zero
- * and 'DL_SLOTS-1'.
- */
-static inline int priv_rx_hw_delay(cmtspeech_nokiamodem_t *priv)
-{
-  struct cs_mmap_config_block *mmap_cfg =
-    (struct cs_mmap_config_block *)priv->d.buf;
-
-  return ((mmap_cfg->rx_ptr_boundary +
-	   mmap_cfg->rx_ptr - priv->rx_ptr_appl) %
-	  mmap_cfg->rx_ptr_boundary);
-}
-
-/**
- * Returns the number of available RX buffers.
- *
- * Note that this number does not include possible frames
- * queued in the driver (see priv_rx_hw_pending()).
- */
-static inline int priv_rx_ptr_avail(const cmtspeech_nokiamodem_t *priv)
-{
- struct cs_mmap_config_block *mmap_cfg = 
-    (struct cs_mmap_config_block *)priv->d.buf;
-
- return ((mmap_cfg->rx_ptr_boundary +
-	  priv->rx_ptr_hw - priv->rx_ptr_appl) %
-	 mmap_cfg->rx_ptr_boundary);
-}
-
-static void handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const cmtspeech_cmd_t cmd, int *flags)
+static int handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const cmtspeech_cmd_t cmd, int *flags)
 {
   int last_slot;
   int next_slot;
@@ -1091,32 +1052,19 @@ static void handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const 
 
   /* step: queue event for application */
   *flags |= CMTSPEECH_EVENT_DL_DATA;
-  priv->rx_ptr_hw = (CS_PARAM_MASK & cmd.d.cmd);
+  priv->rx_ptr_hw = cmd.d.buf[0];
+  if (cmd.d.buf[0] > 2)
+  {
+    TRACE_ERROR(DEBUG_PREFIX "ERROR: invalid RX_DATA_RECEIVED from driver, ignoring");
+    return 0;
+  }
 
   if (priv->rx_ptr_appl < 0)
-    priv->rx_ptr_appl = priv->rx_ptr_hw;
+    priv->rx_ptr_appl = cmd.d.buf[0];
 
   /* step: perform overrun checking */
   last_slot = (priv->rx_ptr_hw) % DL_SLOTS;
   next_slot = (last_slot + 1) % DL_SLOTS;
-
-  if ((priv->d.flags & DRIVER_FEAT_ROLLING_RX_PTR) &&
-      priv_rx_hw_delay(priv) >= DL_SLOTS) {
-    struct cs_mmap_config_block *mmap_cfg =
-      (struct cs_mmap_config_block *)priv->d.buf;
-
-    /* xrun case 1:
-     *     We have not reacted to driver wakeups fast enough and
-     *     driver has overrun the rx buffer at this point. */
-
-    TRACE_INFO(DEBUG_PREFIX "DL buffer overrun (mmaphw %d, hw %d, appl %d, slot %u, count %u, hwdelay %d).",
-	       mmap_cfg->rx_ptr,
-	       priv->rx_ptr_hw, priv->rx_ptr_appl, last_slot, DL_SLOTS,
-	       priv_rx_hw_delay(priv));
-
-    priv->dlbufdesc[last_slot].flags |= BUF_XRUN;
-    *flags |= CMTSPEECH_EVENT_XRUN;
-  }
 
   if (priv->dlbufdesc[next_slot].flags & BUF_LOCKED) {
     /* xrun case 2:
@@ -1124,8 +1072,8 @@ static void handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const 
      *     by application - overrun is not certain, but data
      *     coherency cannot guaranteed, so reporting as an XRUN */
 
-    TRACE_INFO(DEBUG_PREFIX "possible DL buffer overrun (hw %d, appl %d, slot %u, count %u).", 
-	       priv->rx_ptr_hw, priv->rx_ptr_appl, next_slot, DL_SLOTS);
+    TRACE_INFO(DEBUG_PREFIX "possible DL buffer overrun (slots: driver %u, app %u, count %u).", 
+	       priv->rx_ptr_hw, priv->rx_ptr_appl, DL_SLOTS);
 
     priv->dlbufdesc[next_slot].flags |= BUF_XRUN;
     *flags |= CMTSPEECH_EVENT_XRUN;
@@ -1135,10 +1083,11 @@ static void handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const 
     /* xrun case 3:
      *     The slot last used by driver is still owned by application */
 
-    TRACE_INFO(DEBUG_PREFIX "DL buffer overrun (hw %d, appl %d, slot %u, count %u).", 
-	       priv->rx_ptr_hw, priv->rx_ptr_appl, last_slot, DL_SLOTS);
+    TRACE_INFO(DEBUG_PREFIX "DL buffer overrun (slots: driver %u, app %u, count %u).", 
+	       priv->rx_ptr_hw, priv->rx_ptr_appl, DL_SLOTS);
 
     /* note: mark the overrun buffer and raise an event bit */
+    priv->rx_ptr_appl = priv->rx_ptr_hw;
     priv->dlbufdesc[last_slot].flags |= BUF_XRUN;
     *flags |= CMTSPEECH_EVENT_XRUN;
   }
@@ -1148,6 +1097,7 @@ static void handle_inbound_rx_data_received(cmtspeech_nokiamodem_t *priv, const 
     priv->ul_errors = 0;
     TRACE_IO(DEBUG_PREFIX "DL frame received, reactivating UL transfers.");
   }
+  return 1;
 }
 
 /**
@@ -1247,30 +1197,12 @@ static int handle_inbound_control_message(cmtspeech_nokiamodem_t *priv, const cm
     switch(type)
       {
       case CS_COMMAND(CS_RX_DATA_RECEIVED):
-	handle_inbound_rx_data_received(priv, cmd, flags);
-	res = 1;
+	res = handle_inbound_rx_data_received(priv, cmd, flags);
 	break;
 
 #ifdef CS_TX_DATA_SENT
       case CS_COMMAND(CS_TX_DATA_SENT):
 	TRACE_DEBUG(DEBUG_PREFIX "internal event UL_DATA_SENT.");
-	break;
-#endif
-
-#ifdef CS_CDSP_RESET_DONE
-      case CS_COMMAND(CS_CDSP_RESET_DONE):
-	{
-	  cmtspeech_event_t cmtevent;
-          TRACE_ERROR(DEBUG_PREFIX "ERROR: PEER_RESET received, reseting state");
-	  cmtevent.msg_type = CMTSPEECH_EVENT_RESET;
-	  cmtevent.prev_state = priv->bcstate.proto_state;
-	  cmtevent.msg.reset_done.cmt_sent_req = 1;
-	  priv_initialize_after_peer_reset(priv);
-	  cmtevent.state = priv->bcstate.proto_state;
-	  priv_queue_control_event(priv, &cmtevent);
-	  *flags |= CMTSPEECH_EVENT_CONTROL;
-	  res = 1;
-	}
 	break;
 #endif
 
@@ -1354,61 +1286,6 @@ static void priv_inplace_halfword_swap(uint8_t *buf, int n)
 }
 #endif /* PROTOCOL_SUPPORT_SAMPLE_SWAP */
 
-/**
- * Returns the RX slot to give out to application
- *
- * If application has fallen behind the driver, negative
- * error code is returned for each missed slot.
- */
-static int priv_rx_appl_slot(cmtspeech_nokiamodem_t *priv)
-{
-  if (priv->d.flags & DRIVER_FEAT_ROLLING_RX_PTR) {
-    struct cs_mmap_config_block *mmap_cfg =
-      (struct cs_mmap_config_block *)priv->d.buf;
-    int avail = priv_rx_ptr_avail(priv);
-
-    if (avail == mmap_cfg->rx_ptr_boundary - 1) {
-      TRACE_INFO(DEBUG_PREFIX "no frames available (hw %d, appl %d, avail %d, count %u, boundary %u).",
-		 priv->rx_ptr_hw, priv->rx_ptr_appl, avail, DL_SLOTS, mmap_cfg->rx_ptr_boundary);
-      return -ENODATA;
-    }
-    else if (avail >= DL_SLOTS) {
-      TRACE_INFO(DEBUG_PREFIX "late appl wakeup (hw %d, appl %d, avail %d, count %u, boundary %u).",
-		 priv->rx_ptr_hw, priv->rx_ptr_appl, avail, DL_SLOTS, mmap_cfg->rx_ptr_boundary);
-      return -EPIPE;
-    }
-  }
-
-  return priv->rx_ptr_appl % DL_SLOTS;
-}
-
-static void priv_bump_rx_ptr_appl(cmtspeech_nokiamodem_t *priv)
-{
-  struct cs_mmap_config_block *mmap_cfg = 
-    (struct cs_mmap_config_block *)priv->d.buf;
-
-  ++priv->rx_ptr_appl;
-
-  if (priv->d.flags & DRIVER_FEAT_ROLLING_RX_PTR)
-    priv->rx_ptr_appl %= mmap_cfg->rx_ptr_boundary;
-  else
-    priv->rx_ptr_appl %= DL_SLOTS;
-}
-
-/**
- * Resync buffer pointers after an RX buffer overrun.
- */
-static void priv_rx_ptr_appl_handle_xrun(cmtspeech_nokiamodem_t *priv)
-{
-  assert(priv->d.flags & DRIVER_FEAT_ROLLING_RX_PTR);
-
-  while(priv_rx_ptr_avail(priv) >= DL_SLOTS) {
-    int old = priv_rx_ptr_avail(priv);
-    priv_bump_rx_ptr_appl(priv);
-    assert(priv_rx_ptr_avail(priv) < old);
-  }
-}
-
 int cmtspeech_dl_buffer_acquire(cmtspeech_t *context, cmtspeech_buffer_t **buf)
 {
   cmtspeech_nokiamodem_t *priv = (cmtspeech_nokiamodem_t*)context;
@@ -1421,19 +1298,7 @@ int cmtspeech_dl_buffer_acquire(cmtspeech_t *context, cmtspeech_buffer_t **buf)
   if (priv->rx_ptr_appl < 0)
     return -EINVAL;
 
-  slot = priv_rx_appl_slot(priv);
-
-  if (slot == -EPIPE) {
-    priv_rx_ptr_appl_handle_xrun(priv);
-
-    slot = priv_rx_appl_slot(priv);
-    SOFT_ASSERT(slot != -EPIPE);
-  }
-
-  if (slot < 0) {
-    SOFT_ASSERT(slot == -ENODATA);
-    return slot;
-  }
+  slot = priv->rx_ptr_appl;
 
   desc = &priv->dlbufdesc[slot];
 
@@ -1490,7 +1355,7 @@ int cmtspeech_dl_buffer_acquire(cmtspeech_t *context, cmtspeech_buffer_t **buf)
     cmtspeech_bc_test_sequence_received(&priv->bcstate);
   }
 
-  priv_bump_rx_ptr_appl(priv);
+  priv->rx_ptr_appl = (priv->rx_ptr_appl + 1) % DL_SLOTS;
 
   return 0;
 }
@@ -1548,7 +1413,7 @@ cmtspeech_buffer_t *cmtspeech_dl_buffer_find_with_payload(cmtspeech_t *context, 
   return NULL;
 }
 
-int cmtspeech_test_data_ramp_req(cmtspeech_t *context, uint8_t rampstart, uint8_t ramplen)
+int cmtspeech_send_test_sequence(cmtspeech_t *context, uint8_t rampstart, uint8_t ramplen)
 {
   cmtspeech_nokiamodem_t *priv = (cmtspeech_nokiamodem_t*)context;
   int res;
@@ -1561,7 +1426,7 @@ int cmtspeech_test_data_ramp_req(cmtspeech_t *context, uint8_t rampstart, uint8_
   if (res < 0)
     return res;
 
-  return cmtspeech_bc_test_data_ramp_req(&priv->bcstate, context, priv->d.fd, CMTSPEECH_DOMAIN_CONTROL, CMTSPEECH_DOMAIN_DATA, rampstart, ramplen);
+  return cmtspeech_bc_send_test_sequence(&priv->bcstate, context, priv->d.fd, CMTSPEECH_DOMAIN_CONTROL, CMTSPEECH_DOMAIN_DATA, rampstart, ramplen);
 }
 
 int cmtspeech_send_timing_request(cmtspeech_t *context)

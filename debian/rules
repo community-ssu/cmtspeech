@@ -3,7 +3,7 @@
 
 # export DH_VERBOSE=1
 
-CFLAGS = -Wall -g -Werror -Wno-error=unused-but-set-variable
+CFLAGS = -Wall -g
 
 DESTDIR = $(CURDIR)/debian/tmp
 
@@ -22,7 +22,7 @@ config.status:
 	if [ ! -x configure ]; then ./autogen.sh; fi
 	dh_testdir
 	# Add here commands to configure the package.
-	CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" ./configure --prefix=/usr --disable-static $(CONFIGURE_OPTIONS)
+	CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" ./configure --prefix=/usr --disable-extra-debug $(CONFIGURE_OPTIONS)
 
 build: build-stamp
 

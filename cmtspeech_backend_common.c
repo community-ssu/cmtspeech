@@ -107,13 +107,6 @@ static void priv_reset_state_to_disconnected(cmtspeech_bc_state_t *state)
 int cmtspeech_bc_open(cmtspeech_bc_state_t *state)
 {
   priv_reset_state_to_disconnected(state);
-
-  /* CMT Speech Data protocol versions:
-   * - v1: 8kHz/NB support only 
-   * - v2: like v1, but transfer always 16kHz/WB independently 
-   *       of the active codec */
-  state->conf_proto_version = 1;
-
   return 0;
 }
 
@@ -124,75 +117,6 @@ int cmtspeech_bc_open(cmtspeech_bc_state_t *state)
 void cmtspeech_init(void)
 {
   cmtspeech_initialize_tracing();
-}
-
-int cmtspeech_set_wb_preference(cmtspeech_t *context, bool enabled)
-{
-  cmtspeech_bc_state_t *state
-    = cmtspeech_bc_state_object(context);
-
-  if (cmtspeech_is_ssi_connection_enabled(context) == true)
-    return -1;
-
-  if (enabled)
-    state->conf_proto_version = 2;
-  else
-    state->conf_proto_version = 1;
-
-  return 0;
-}
-
-int cmtspeech_event_to_state_transition(const cmtspeech_t *context, const cmtspeech_event_t *cev)
-{
-  if (cev->prev_state == CMTSPEECH_STATE_DISCONNECTED &&
-      cev->state == CMTSPEECH_STATE_CONNECTED)
-
-    return CMTSPEECH_TR_1_CONNECTED;
-
-  else if (cev->prev_state == CMTSPEECH_STATE_CONNECTED &&
-	   cev->state == CMTSPEECH_STATE_DISCONNECTED)
-
-    return CMTSPEECH_TR_2_DISCONNECTED;
-
-  else if (cev->prev_state == CMTSPEECH_STATE_CONNECTED &&
-	   cev->state == CMTSPEECH_STATE_ACTIVE_DL)
-
-    return CMTSPEECH_TR_3_DL_START;
-
-  else if ((cev->prev_state == CMTSPEECH_STATE_ACTIVE_DL ||
-	    cev->prev_state == CMTSPEECH_STATE_ACTIVE_DLUL) &&
-	   cev->state == CMTSPEECH_STATE_CONNECTED)
-
-    return CMTSPEECH_TR_4_DLUL_STOP;
-
-  else if (cev->prev_state == CMTSPEECH_STATE_ACTIVE_DL &&
-	   cev->state == CMTSPEECH_STATE_ACTIVE_DL)
-
-    return CMTSPEECH_TR_5_PARAM_UPDATE;
-
-  else if (cev->msg_type == CMTSPEECH_TIMING_CONFIG_NTF)
-
-    /* note: we currently cannot distinguish between TR_6 and TR_7,
-             i.e. whether the timing update is a response to our
-	     explicit request of new timing, or modem iniated update
-	     of timing */
-    return CMTSPEECH_TR_6_TIMING_UPDATE;
-
-  else if (cev->msg_type == CMTSPEECH_EVENT_RESET)
-
-    return CMTSPEECH_TR_10_RESET;
-
-  else if (cev->prev_state == CMTSPEECH_STATE_ACTIVE_DLUL &&
-	   cev->state == CMTSPEECH_STATE_ACTIVE_DL)
-
-    return CMTSPEECH_TR_11_UL_STOP;
-
-  else if (cev->prev_state == CMTSPEECH_STATE_ACTIVE_DL &&
-	   cev->state == CMTSPEECH_STATE_ACTIVE_DLUL)
-
-    return CMTSPEECH_TR_12_UL_START;
-
-  return CMTSPEECH_TR_INVALID;
 }
 
 int cmtspeech_protocol_state(cmtspeech_t* context)
@@ -409,7 +333,7 @@ int cmtspeech_bc_handle_command(cmtspeech_bc_state_t *state, cmtspeech_t *pconte
     /* XXX: support legacy CMT firmwares */
     if (state->proto_state == CMTSPEECH_STATE_ACTIVE_DL) {
       priv_state_change_to(state, CMTSPEECH_STATE_ACTIVE_DLUL, BC_STATE_IN_SYNC);
-      TRACE_INFO(DEBUG_PREFIX "XXX detected an old CMT firmware that does not send UPLINK_CONFIG_NTF. Support for old versions will be dropped in later versions.");
+      TRACE_INFO(DEBUG_PREFIX "backend_common: XXX detected an old CMT SW (pre-0.16). Support for old versions will be dropped in later versions.");
     }
 
     if (state->priv_state == BC_STATE_TIMING)
@@ -614,14 +538,12 @@ int cmtspeech_bc_write_command(cmtspeech_bc_state_t *state, cmtspeech_t *pcontex
     state->io_errors = 0;
   }
   else {
-    TRACE_ERROR(DEBUG_PREFIX "ERROR: sending cmd %s failed, res %d",
-		cmtspeech_msg_type_to_string(msg), res);
     ++state->io_errors;
   }
   return res;
 }
 
-int cmtspeech_bc_test_data_ramp_req(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd, uint8_t channel, uint8_t replychannel, uint8_t rampstart, uint8_t ramplen)
+int cmtspeech_bc_send_test_sequence(cmtspeech_bc_state_t *state, cmtspeech_t *pcontext, int fd, uint8_t channel, uint8_t replychannel, uint8_t rampstart, uint8_t ramplen)
 {
   int res;
   cmtspeech_cmd_t msg;
@@ -682,7 +604,7 @@ int cmtspeech_bc_send_ssi_config_request(cmtspeech_bc_state_t *state, cmtspeech_
   int res = 
     cmtspeech_msg_encode_ssi_config_req(&msg, 
 					layout,
-					state->conf_proto_version,
+					1,
 					state_arg == true ? 1 : 0);
 
   TRACE_DEBUG(DEBUG_PREFIX "Trying to send SSI_CONFIG_REQ with layout %d, version %d and status %d.", 

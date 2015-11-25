@@ -9,7 +9,6 @@ global:
 	cmtspeech_dl_buffer_find_with_data;
 	cmtspeech_dl_buffer_find_with_payload;
 	cmtspeech_dl_buffer_release;
-	cmtspeech_event_to_state_transition;
 	cmtspeech_init;
 	cmtspeech_is_active;
 	cmtspeech_is_ssi_connection_enabled;
@@ -20,11 +19,10 @@ global:
 	cmtspeech_send_ssi_config_request;
 	cmtspeech_send_timing_request;
 	cmtspeech_set_trace_handler;
-	cmtspeech_set_wb_preference;
 	cmtspeech_state_change_call_connect;
 	cmtspeech_state_change_call_status;
 	cmtspeech_state_change_error;
-	cmtspeech_test_data_ramp_req;
+	cmtspeech_send_test_sequence;
 	cmtspeech_trace_toggle;
 	cmtspeech_ul_buffer_acquire;
 	cmtspeech_ul_buffer_release;

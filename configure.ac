@@ -10,7 +10,7 @@ AC_PREREQ(2.57)
 dnl information on the package
 dnl ---------------------------
 
-AC_INIT([libcmtspeechdata], [2.0.4])
+AC_INIT([libcmtspeechdata], [1.6.2.3])
 AC_CONFIG_SRCDIR([cmtspeech.h])
 AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
@@ -18,7 +18,7 @@ AM_MAINTAINER_MODE
 VERSION_MAJOR=`echo $VERSION |cut -f1 -d.`
 VERSION_LIBRARY_API=`echo $VERSION |cut -f2 -d.`
 VERSION_MINOR=`echo $VERSION |cut -f3 -d.`
-VERSION_PROTOCOL=2
+VERSION_PROTOCOL=1
 AC_SUBST(VERSION_MAJOR)
 AC_SUBST(VERSION_LIBRARY_API)
 AC_SUBST(VERSION_MINOR)
@@ -108,7 +108,6 @@ Makefile
 cmtspeech_config.h
 doc/Makefile
 doc/doxygen.cfg
-dummy-backend/Makefile
 ])
 
 AC_OUTPUT
